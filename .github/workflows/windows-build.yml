@@ -4,225 +4,239 @@ on:
   workflow_dispatch:
 
   push:
+    branches:
+      - main
+
     tags:
       - "v*"
 
 permissions:
   contents: write
 
+
 env:
   PYTHON_VERSION: "3.11"
 
+
 jobs:
 
-  # ==========================================================
-  # JOB 1 — TESTS
-  # ==========================================================
+  # ============================================================
+  # TESTS
+  # ============================================================
 
   test:
 
-    name: Tests
+    name: Run tests
 
     runs-on: windows-latest
 
     steps:
 
-      # --------------------------------------------------------
-      # Récupération du dépôt
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
 
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # Afficher la structure réelle du dépôt
-      # --------------------------------------------------------
 
-      - name: Inspect repository
-        shell: pwsh
-        run: |
-          Write-Host "======================================"
-          Write-Host "STRUCTURE DU DEPOT"
-          Write-Host "======================================"
-
-          Get-ChildItem -Force
-
-          Write-Host ""
-          Write-Host "Arborescence :"
-
-          Get-ChildItem -Recurse -Force |
-            Select-Object FullName
-
-      # --------------------------------------------------------
-      # Détecter automatiquement le dossier du projet
-      # --------------------------------------------------------
-
-      - name: Detect project structure
-        id: project
-        shell: pwsh
-        run: |
-
-          Write-Host "Recherche du projet Docu2TeX..."
-
-          if (Test-Path "Docu2TeX/tests") {
-
-              Write-Host "Projet détecté dans : Docu2TeX"
-
-              "dir=Docu2TeX" >> $env:GITHUB_OUTPUT
-
-          }
-          elseif (Test-Path "tests") {
-
-              Write-Host "Projet détecté à la racine"
-
-              "dir=." >> $env:GITHUB_OUTPUT
-
-          }
-          else {
-
-              Write-Host ""
-              Write-Host "======================================"
-              Write-Host "ERREUR : DOSSIER TESTS INTROUVABLE"
-              Write-Host "======================================"
-
-              Get-ChildItem -Recurse -Force
-
-              exit 1
-          }
-
-      # --------------------------------------------------------
-      # Installer Python
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # Python
+      # ----------------------------------------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
+
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      # --------------------------------------------------------
-      # Installer les dépendances
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérification de la structure
+      # ----------------------------------------------------------
+
+      - name: Verify project files
+        shell: pwsh
+
+        run: |
+
+          Write-Host "======================================"
+          Write-Host "DOCU2TEX - VERIFICATION DU PROJET"
+          Write-Host "======================================"
+
+          $requiredFiles = @(
+            "main.py",
+            "compiler.py",
+            "docx_converter.py",
+            "pdf_converter.py",
+            "latex_utils.py",
+            "models.py",
+            "service.py",
+            "tex_writer.py",
+            "ui.py",
+            "build_windows.spec",
+            "requirements.txt"
+          )
+
+          $missing = @()
+
+          foreach ($file in $requiredFiles) {
+
+            if (Test-Path $file) {
+
+              Write-Host "[OK] $file"
+
+            }
+            else {
+
+              Write-Host "[MISSING] $file"
+
+              $missing += $file
+            }
+          }
+
+          Write-Host ""
+
+          if ($missing.Count -gt 0) {
+
+            Write-Error "Des fichiers nécessaires sont absents."
+
+            exit 1
+          }
+
+          Write-Host "Tous les fichiers principaux sont présents."
+
+
+      # ----------------------------------------------------------
+      # Installation des dépendances
+      # ----------------------------------------------------------
 
       - name: Install dependencies
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
           python -m pip install --upgrade pip
 
           if (Test-Path "requirements.txt") {
 
-              python -m pip install -r requirements.txt
+            python -m pip install -r requirements.txt
 
           }
 
           if (Test-Path "requirements-dev.txt") {
 
-              python -m pip install -r requirements-dev.txt
+            python -m pip install -r requirements-dev.txt
 
           }
 
           python -m pip install pytest
 
-      # --------------------------------------------------------
-      # Vérifier Python et pytest
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérification Python
+      # ----------------------------------------------------------
 
       - name: Verify Python
-        working-directory: ${{ steps.project.outputs.dir }}
+        shell: pwsh
+
         run: |
+
+          Write-Host "Python :"
 
           python --version
 
-          python -m pip --version
+          Write-Host ""
+
+          Write-Host "Pytest :"
 
           python -m pytest --version
 
-      # --------------------------------------------------------
-      # Vérifier que les tests existent
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérifier les fichiers de tests
+      # ----------------------------------------------------------
 
       - name: Verify test files
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
           Write-Host "======================================"
-          Write-Host "RECHERCHE DES TESTS"
+          Write-Host "TESTS TROUVES"
           Write-Host "======================================"
 
-          if (!(Test-Path "tests")) {
-
-              Write-Error "Le dossier tests n'existe pas."
-
-              Write-Host ""
-              Write-Host "Contenu du projet :"
-
-              Get-ChildItem -Recurse -Force
-
-              exit 1
-          }
-
           $testFiles = @(
-              Get-ChildItem "tests" -Filter "test_*.py" -Recurse
+            Get-ChildItem -Path . -Filter "test_*.py" -File
           )
 
           if ($testFiles.Count -eq 0) {
 
-              Write-Error "Aucun fichier test_*.py trouvé."
+            Write-Error "Aucun fichier test_*.py trouvé."
 
-              Write-Host ""
-              Write-Host "Contenu du dossier tests :"
-
-              Get-ChildItem "tests" -Recurse -Force
-
-              exit 1
+            exit 1
           }
-
-          Write-Host ""
-          Write-Host "Tests trouvés :"
 
           foreach ($file in $testFiles) {
 
-              Write-Host "  $($file.FullName)"
+            Write-Host "[OK] $($file.Name)"
 
           }
 
           Write-Host ""
-          Write-Host "Nombre de tests : $($testFiles.Count)"
 
-      # --------------------------------------------------------
-      # Lancer pytest
-      # --------------------------------------------------------
+          Write-Host "Nombre de fichiers de tests : $($testFiles.Count)"
 
-      - name: Run tests
-        working-directory: ${{ steps.project.outputs.dir }}
+
+      # ----------------------------------------------------------
+      # Exécution des tests
+      # ----------------------------------------------------------
+
+      - name: Run pytest
         shell: pwsh
+
         run: |
 
           Write-Host "======================================"
-          Write-Host "EXECUTION DES TESTS"
+          Write-Host "EXECUTION DE PYTEST"
           Write-Host "======================================"
 
-          python -m pytest tests -q
+          python -m pytest -q
 
-      # --------------------------------------------------------
-      # Vérifier la syntaxe Python
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérification syntaxique
+      # ----------------------------------------------------------
 
       - name: Verify Python syntax
-        working-directory: ${{ steps.project.outputs.dir }}
+        shell: pwsh
+
         run: |
+
+          Write-Host "======================================"
+          Write-Host "VERIFICATION SYNTAXIQUE"
+          Write-Host "======================================"
 
           python -m compileall -q .
 
-  # ==========================================================
-  # JOB 2 — CONSTRUCTION WINDOWS
-  # ==========================================================
+          if ($LASTEXITCODE -ne 0) {
+
+            Write-Error "Erreur de syntaxe Python."
+
+            exit 1
+          }
+
+          Write-Host "Syntaxe Python correcte."
+
+
+  # ============================================================
+  # BUILD WINDOWS
+  # ============================================================
 
   build-windows:
 
-    name: Build Windows EXE
+    name: Build Windows executable
 
     needs: test
 
@@ -230,182 +244,168 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Récupération du dépôt
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
 
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # Afficher la structure
-      # --------------------------------------------------------
 
-      - name: Inspect repository
-        shell: pwsh
-        run: |
-
-          Write-Host "======================================"
-          Write-Host "STRUCTURE DU DEPOT"
-          Write-Host "======================================"
-
-          Get-ChildItem -Recurse -Force |
-            Select-Object FullName
-
-      # --------------------------------------------------------
-      # Détecter le projet
-      # --------------------------------------------------------
-
-      - name: Detect project structure
-        id: project
-        shell: pwsh
-        run: |
-
-          if (Test-Path "Docu2TeX/build_windows.spec") {
-
-              Write-Host "Projet détecté dans Docu2TeX"
-
-              "dir=Docu2TeX" >> $env:GITHUB_OUTPUT
-
-          }
-          elseif (Test-Path "build_windows.spec") {
-
-              Write-Host "Projet détecté à la racine"
-
-              "dir=." >> $env:GITHUB_OUTPUT
-
-          }
-          else {
-
-              Write-Error "Le fichier build_windows.spec est introuvable."
-
-              Get-ChildItem -Recurse -Force
-
-              exit 1
-          }
-
-      # --------------------------------------------------------
-      # Installer Python
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # Python
+      # ----------------------------------------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
+
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      # --------------------------------------------------------
-      # Installer les dépendances
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Installation
+      # ----------------------------------------------------------
 
       - name: Install dependencies
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
           python -m pip install --upgrade pip
 
           if (Test-Path "requirements.txt") {
 
-              python -m pip install -r requirements.txt
+            python -m pip install -r requirements.txt
 
           }
 
           if (Test-Path "requirements-dev.txt") {
 
-              python -m pip install -r requirements-dev.txt
+            python -m pip install -r requirements-dev.txt
 
           }
 
           python -m pip install pyinstaller
 
-      # --------------------------------------------------------
-      # Vérifier PyInstaller
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérification PyInstaller
+      # ----------------------------------------------------------
 
       - name: Verify PyInstaller
+        shell: pwsh
+
         run: |
 
           python --version
 
           python -m PyInstaller --version
 
-      # --------------------------------------------------------
-      # Construire l'EXE
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Vérification du fichier SPEC
+      # ----------------------------------------------------------
+
+      - name: Verify build specification
+        shell: pwsh
+
+        run: |
+
+          if (!(Test-Path "build_windows.spec")) {
+
+            Write-Error "build_windows.spec est introuvable."
+
+            exit 1
+          }
+
+          Write-Host "[OK] build_windows.spec"
+
+
+      # ----------------------------------------------------------
+      # Construction
+      # ----------------------------------------------------------
 
       - name: Build EXE
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
           Write-Host "======================================"
           Write-Host "CONSTRUCTION DE DOCU2TEX"
           Write-Host "======================================"
 
-          if (!(Test-Path "build_windows.spec")) {
-
-              Write-Error "build_windows.spec introuvable."
-
-              exit 1
-          }
-
           python -m PyInstaller `
             --noconfirm `
             --clean `
             build_windows.spec
 
-      # --------------------------------------------------------
-      # Vérifier l'EXE
-      # --------------------------------------------------------
+          if ($LASTEXITCODE -ne 0) {
+
+            Write-Error "PyInstaller a échoué."
+
+            exit 1
+          }
+
+
+      # ----------------------------------------------------------
+      # Vérification de l'EXE
+      # ----------------------------------------------------------
 
       - name: Verify EXE
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
           Write-Host "======================================"
-          Write-Host "VERIFICATION DE L'EXE"
+          Write-Host "VERIFICATION DE L'EXECUTABLE"
           Write-Host "======================================"
 
-          $exe = "dist/Docu2TeX.exe"
+          $exe = "dist\Docu2TeX.exe"
 
           if (!(Test-Path $exe)) {
 
-              Write-Error "Docu2TeX.exe n'a pas été généré."
+            Write-Error "Docu2TeX.exe n'a pas été créé."
 
-              Write-Host ""
-              Write-Host "Contenu de dist :"
+            Write-Host ""
+            Write-Host "Contenu du dossier dist :"
 
-              if (Test-Path "dist") {
+            if (Test-Path "dist") {
 
-                  Get-ChildItem "dist" -Recurse -Force
+              Get-ChildItem "dist" -Recurse -Force
 
-              }
+            }
 
-              exit 1
+            exit 1
           }
 
           Write-Host ""
-          Write-Host "Docu2TeX.exe généré avec succès."
+          Write-Host "[OK] Docu2TeX.exe"
 
           Get-Item $exe
 
-      # --------------------------------------------------------
-      # Créer le ZIP Windows
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Création du ZIP
+      # ----------------------------------------------------------
 
       - name: Create Windows ZIP
-        working-directory: ${{ steps.project.outputs.dir }}
         shell: pwsh
+
         run: |
 
-          $exe = "dist/Docu2TeX.exe"
+          Write-Host "======================================"
+          Write-Host "CREATION DE L'ARCHIVE WINDOWS"
+          Write-Host "======================================"
+
+          $exe = "dist\Docu2TeX.exe"
 
           $zip = "Docu2TeX-Windows.zip"
 
           if (Test-Path $zip) {
 
-              Remove-Item $zip -Force
+            Remove-Item $zip -Force
 
           }
 
@@ -414,29 +414,40 @@ jobs:
             -DestinationPath $zip `
             -CompressionLevel Optimal
 
-          Write-Host ""
-          Write-Host "Archive créée :"
+          if (!(Test-Path $zip)) {
+
+            Write-Error "Impossible de créer l'archive."
+
+            exit 1
+          }
+
+          Write-Host "[OK] $zip"
 
           Get-Item $zip
 
-      # --------------------------------------------------------
-      # Publier l'artefact
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Upload Artifact
+      # ----------------------------------------------------------
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
+
         with:
           name: Docu2TeX-Windows
-          path: ${{ steps.project.outputs.dir }}/Docu2TeX-Windows.zip
+          path: Docu2TeX-Windows.zip
           if-no-files-found: error
 
-      # --------------------------------------------------------
-      # Créer une Release si un tag est utilisé
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # GitHub Release pour les tags
+      # ----------------------------------------------------------
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
+
         uses: softprops/action-gh-release@v2
+
         with:
-          files: ${{ steps.project.outputs.dir }}/Docu2TeX-Windows.zip
+          files: Docu2TeX-Windows.zip
           generate_release_notes: true
